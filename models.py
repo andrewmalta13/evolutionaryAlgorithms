@@ -13,7 +13,19 @@ class Net():
                 self.layers.append(np.reshape(weights[tmp: tmp + length], d))
                 tmp += length
                 self.biases.append(np.reshape(weights[tmp: tmp + d[-1]], (1, d[-1])))
-                tmp += d[-1]        
+                tmp += d[-1]
+
+    def set_model_params(self, weights):
+        self.layers = []
+        self.biases = []
+
+        tmp = 0
+        for d in self.dimensions:
+            length = np.prod(d)
+            self.layers.append(np.reshape(weights[tmp: tmp + length], d))
+            tmp += length
+            self.biases.append(np.reshape(weights[tmp: tmp + d[-1]], (1, d[-1])))
+            tmp += d[-1]
         
     def forward(self, x):
         working_tensor = x

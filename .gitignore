@@ -2,3 +2,4 @@ openaigym/*
 estool
 estool/*
 *.pyc
+log/*
