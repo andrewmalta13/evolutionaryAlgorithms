@@ -4,9 +4,10 @@ import json
 import os
 import subprocess
 import sys
+from simulate import simulate
 # import config
 from models import Net
-from evolution import Weighted_Average_ES, Winner_ES, CMA_ES
+from evolution import Weighted_Average_ES, Winner_ES, CMA_ES, PEPG
 import argparse
 import time
 import gym
@@ -83,6 +84,19 @@ def initialize_settings(sigma_init=0.1, sigma_decay=0.9999):
            }
 
     es = CMA_ES(args)
+  elif optimizer == "pepg":
+    pepg = PEPG(num_params,
+      sigma_init=sigma_init,
+      sigma_decay=sigma_decay,
+      sigma_alpha=0.20,
+      sigma_limit=0.02,
+      learning_rate=0.01,
+      learning_rate_decay=1.0,
+      learning_rate_limit=0.01,
+      weight_decay=0.005,
+      popsize=population)
+
+    es = pepg
 
   else:
     print("invalid evolutionary algorithm")
@@ -157,31 +171,6 @@ def decode_result_packet(packet):
     result.append([workers[i], jobs[i], fits[i], times[i]])
   return result
 
-def simulate(env, model_cls, weights, num_trials, seed, render=False):
-    m = model_cls(weights)
-    rewards = []
-    for _ in xrange(num_trials):
-        observation = env.reset()
-        done = False
-        best_reward = -float("inf")
-        ticks = 0
-
-        while not done:
-            if render:
-                env.render()
-            action = m.forward(observation)
-            observation, reward, done, info = env.step(action)
-
-            if reward > best_reward:
-                best_reward = reward
-                ticks = 0
-            elif ticks == 250:
-                break
-            ticks += 1
-
-        rewards.append(reward)
-
-    return np.mean(rewards), range(num_trials)
 
 def worker(env, weights, seed, train_mode_int=1, max_len=-1):
   train_mode = (train_mode_int == 1)
@@ -410,7 +399,7 @@ if __name__ == "__main__":
   parser = argparse.ArgumentParser(description=('Train policy on OpenAI Gym environment '
                                                 'using pepg, ses, openes, ga, cma'))
   # parser.add_argument('gamename', type=str, help='robo_pendulum, robo_ant, robo_humanoid, etc.')
-  parser.add_argument('-o', '--optimizer', type=str, help='ses, pepg, openes, ga, cma.', default='winner_es')
+  parser.add_argument('-o', '--optimizer', type=str, help='ses, pepg, openes, ga, cma.', default='pepg')
   parser.add_argument('-e', '--num_episode', type=int, default=1, help='num episodes per trial')
   parser.add_argument('--eval_steps', type=int, default=25, help='evaluate every eval_steps step')
   parser.add_argument('-n', '--num_worker', type=int, default=8)

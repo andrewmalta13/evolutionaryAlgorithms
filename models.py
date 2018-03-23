@@ -3,7 +3,7 @@ import numpy as np
 class Net():
     def __init__(self, weights):
         # an affine operation: y = Wx + b
-        self.dimensions = [(24, 20), (20, 4)]
+        self.dimensions = [(24, 40), (40, 40), (40, 4)]
         self.layers = []
         self.biases = []
         if not weights is None:
