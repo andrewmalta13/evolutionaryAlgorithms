@@ -5,9 +5,8 @@ import os
 import subprocess
 import sys
 from simulate import simulate
-# import config
 from models import Net
-from evolution import Weighted_Average_ES, Winner_ES, CMA_ES, PEPG
+from evolution import Weighted_Average_ES, Winner_ES, CMA_ES, OpenES
 import argparse
 import time
 import gym
@@ -25,7 +24,6 @@ num_worker_trial = 16
 population = num_worker * num_worker_trial
 
 gamename = 'BipedalWalker-v2'
-optimizer = 'winner_es'
 antithetic = False
 batch_mode = 'mean'
 
@@ -84,19 +82,24 @@ def initialize_settings(sigma_init=0.1, sigma_decay=0.9999):
            }
 
     es = CMA_ES(args)
-  elif optimizer == "pepg":
-    pepg = PEPG(num_params,
-      sigma_init=sigma_init,
-      sigma_decay=sigma_decay,
-      sigma_alpha=0.20,
-      sigma_limit=0.02,
-      learning_rate=0.01,
-      learning_rate_decay=1.0,
-      learning_rate_limit=0.01,
-      weight_decay=0.005,
-      popsize=population)
+  elif optimizer == "openes":
 
-    es = pepg
+    args = {"theta_dim": model.num_flat_features(),
+            "sigma_start": .1,
+            "sigma_mult": .999,
+            "sigma_lower_bound": .02,
+            "alpha": .01,
+            "alpha_mult": 1,
+            "alpha_lower_bound": .01,
+            "antithetic": True,
+            "weight_decay": .005,
+            "start_sigma": .05,
+            "rank_fitness": True,            # use rank rather than fitness numbers
+            "forget_best": True,             # should we forget the best fitness at each iteration
+            "gen_size": gen_size
+           }
+
+    es = OpenES(args)
 
   else:
     print("invalid evolutionary algorithm")
@@ -170,7 +173,6 @@ def decode_result_packet(packet):
   for i in range(n):
     result.append([workers[i], jobs[i], fits[i], times[i]])
   return result
-
 
 def worker(env, weights, seed, train_mode_int=1, max_len=-1):
   train_mode = (train_mode_int == 1)
@@ -251,7 +253,7 @@ def evaluate_batch(model_params, max_len=-1):
   reward_list = reward_list_total[:, 0] # get rewards
   return np.mean(reward_list)
 
-def master():
+def master(starting_file):
   start_time = int(time.time())
   sprint("training", gamename)
   sprint("population", es.gen_size)
@@ -265,6 +267,16 @@ def master():
   filename_log = filebase+'.log.json'
   filename_hist = filebase+'.hist.json'
   filename_best = filebase+'.best.json'
+
+  # if the user specified a place to start from
+  if starting_file:
+    print starting_file
+    with open(starting_file, "r") as f:
+      sprint("Loading File to Start From:", starting_file)
+      data = json.load(f)
+      weights = data[0]
+
+    es.set_theta(weights)
 
   t = 0
 
@@ -303,9 +315,6 @@ def master():
     es_solution = es.result()
     model_params = es_solution # best historical solution
 
-    # reward = es_solution[1] # best reward
-    # curr_reward = es_solution[2] # best of the current batch
-
     model.set_model_params(np.array(model_params).round(4))
 
     r_max = int(np.max(reward_list)*100)/100.
@@ -340,8 +349,10 @@ def master():
       model_params_quantized = model_params_quantized.tolist()
       improvement = reward_eval - best_reward_eval
       eval_log.append([t, reward_eval, model_params_quantized])
+
       with open(filename_log, 'wt') as out:
         res = json.dump(eval_log, out)
+
       if (len(eval_log) == 1 or reward_eval > best_reward_eval):
         best_reward_eval = reward_eval
         best_model_params_eval = model_params_quantized
@@ -358,16 +369,14 @@ def main(args):
   eval_steps = args.eval_steps
   num_worker = args.num_worker
   num_worker_trial = args.num_worker_trial
-  # antithetic = (args.antithetic == 1)
-  # retrain_mode = (args.retrain == 1)
-  # cap_time_mode= (args.cap_time == 1)
   seed_start = args.seed_start
+  start_file = args.start_file
 
   initialize_settings(args.sigma_init, args.sigma_decay)
 
   sprint("process", rank, "out of total ", comm.Get_size(), "started")
   if (rank == 0):
-    master()
+    master(start_file)
   else:
     slave()
 
@@ -396,10 +405,10 @@ def mpi_fork(n):
     return "child"
 
 if __name__ == "__main__":
-  parser = argparse.ArgumentParser(description=('Train policy on OpenAI Gym environment '
-                                                'using pepg, ses, openes, ga, cma'))
-  # parser.add_argument('gamename', type=str, help='robo_pendulum, robo_ant, robo_humanoid, etc.')
-  parser.add_argument('-o', '--optimizer', type=str, help='ses, pepg, openes, ga, cma.', default='pepg')
+  parser = argparse.ArgumentParser(description=('Train policy for OpenAI gym env: BipedalWalker-v2'
+                                                'using openes, winner_es, weighted_average_es, cma-es'))
+
+  parser.add_argument('-o', '--optimizer', type=str, help='ses, pepg, openes, ga, cma.', default='openes')
   parser.add_argument('-e', '--num_episode', type=int, default=1, help='num episodes per trial')
   parser.add_argument('--eval_steps', type=int, default=25, help='evaluate every eval_steps step')
   parser.add_argument('-n', '--num_worker', type=int, default=8)
@@ -410,6 +419,7 @@ if __name__ == "__main__":
   parser.add_argument('-s', '--seed_start', type=int, default=111, help='initial seed')
   parser.add_argument('--sigma_init', type=float, default=0.10, help='sigma_init')
   parser.add_argument('--sigma_decay', type=float, default=0.999, help='sigma_decay')
+  parser.add_argument('--start_file', type=str, default=None, help='')
 
   args = parser.parse_args()
   if "parent" == mpi_fork(args.num_worker+1): os.exit()

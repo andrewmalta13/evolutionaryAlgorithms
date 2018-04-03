@@ -28,6 +28,9 @@ class Weighted_Average_ES:
     def result(self):
         return self.theta
 
+    def set_theta(self, theta):
+        self.theta = np.array(theta)
+
 class Winner_ES:
     def __init__(self, kwargs):
         self.theta_dim = kwargs["theta_dim"]
@@ -47,6 +50,9 @@ class Winner_ES:
 
     def result(self):
         return self.theta
+
+    def set_theta(self, theta):
+        self.theta = np.array(theta)
 
 class CMA_ES:
     def __init__(self, kwargs):
@@ -128,15 +134,20 @@ class CMA_ES:
         nse = np.sqrt(self.n) * tmp  # neutral selection expectation
         self.sigma = self.sigma * np.exp((c_sigma / d_sigma) * ((p_sigma_norm / nse) - 1))
 
-    
+    def set_theta(self, theta):
+        self.mean = np.array(theta)
+
     def result(self):
         return self.mean
 
+''' helper functions taken from OpenAI's implementation of their algorithm which
+can be found here:
+(https://github.com/openai/evolution-strategies-starter/blob/master/es_distributed/es.py)
+'''
 def compute_ranks(x):
   """
   Returns ranks in [0, len(x))
   Note: This is different from scipy.stats.rankdata, which returns ranks in [1, len(x)].
-  (https://github.com/openai/evolution-strategies-starter/blob/master/es_distributed/es.py)
   """
   assert x.ndim == 1
   ranks = np.empty(len(x), dtype=int)
@@ -153,223 +164,99 @@ def compute_centered_ranks(x):
   return y
 
 def compute_weight_decay(weight_decay, model_param_list):
-  model_param_grid = np.array(model_param_list)
-  return - weight_decay * np.mean(model_param_grid * model_param_grid, axis=1)
+    model_param_grid = np.array(model_param_list)
+    return -weight_decay * np.mean(model_param_grid * model_param_grid, axis=1)
 
-# base class for an optimizer
-class Optimizer(object):
-  def __init__(self, pi, epsilon=1e-08):
-    self.pi = pi
-    self.dim = pi.num_params
-    self.epsilon = epsilon
-    self.t = 0
+class OpenES:
+    ''' Basic Version of OpenAI Evolution Strategies.'''
+    def __init__(self, args):
+        self.theta_dim = args["theta_dim"]
+        self.sigma = args["sigma_start"]
+        self.sigma_init = args["sigma_start"]
+        self.sigma_lower_bound = args["sigma_lower_bound"]
+        self.sigma_mult = args["sigma_mult"]
+        self.alpha = args["alpha"]
+        self.alpha_mult = args["alpha_mult"]
+        self.alpha_lower_bound = args["alpha_lower_bound"]
+        self.gen_size = args["gen_size"]
+        self.antithetic = args["antithetic"]
+        if self.antithetic:
+            assert (self.gen_size % 2 == 0), "Population size must be even"
+            self.half_gensize = int(self.gen_size / 2)
 
-  def update(self, globalg):
-    self.t += 1
-    step = self._compute_step(globalg)
-    theta = self.pi.mu
-    ratio = np.linalg.norm(step) / (np.linalg.norm(theta) + self.epsilon)
-    self.pi.mu = theta + step
-    return ratio
+        self.rewards = np.zeros(self.gen_size)
+        self.theta = np.zeros(self.theta_dim)
+        self.best_theta = np.zeros(self.theta_dim)
+        self.best_reward = -float("inf") # lowest possible value
+        self.forget_best = args["forget_best"]
+        self.weight_decay = args["weight_decay"]
+        self.rank_fitness = args["rank_fitness"]
+        if self.rank_fitness:
+            self.forget_best = True # always forget the best one if we rank
 
-  def _compute_step(self, globalg):
-    raise NotImplementedError
+    def ask(self):
+        '''returns a collection of model weights'''
+        # antithetic sampling
+        if self.antithetic:
+            self.epsilon_half = np.random.randn(self.half_gensize, self.theta_dim)
+            self.epsilon = np.concatenate([self.epsilon_half, -self.epsilon_half])
+        else:
+            self.epsilon = np.random.randn(self.gen_size, self.theta_dim)
 
-# Adam optimizer for use in PEPG
-class Adam(Optimizer):
-  def __init__(self, pi, stepsize, beta1=0.99, beta2=0.999):
-    Optimizer.__init__(self, pi)
-    self.stepsize = stepsize
-    self.beta1 = beta1
-    self.beta2 = beta2
-    self.m = np.zeros(self.dim, dtype=np.float32)
-    self.v = np.zeros(self.dim, dtype=np.float32)
+        self.solutions = self.theta.reshape(1, self.theta_dim) + self.epsilon * self.sigma
 
-  def _compute_step(self, globalg):
-    a = self.stepsize * np.sqrt(1 - self.beta2 ** self.t) / (1 - self.beta1 ** self.t)
-    self.m = self.beta1 * self.m + (1 - self.beta1) * globalg
-    self.v = self.beta2 * self.v + (1 - self.beta2) * (globalg * globalg)
-    step = -a * self.m / (np.sqrt(self.v) + self.epsilon)
-    return step
+        return self.solutions
 
-# PEPG implementation from estool
-class PEPG:
-  '''Extension of PEPG with bells and whistles.'''
-  def __init__(self, num_params,             # number of model parameters
-               sigma_init=0.10,              # initial standard deviation
-               sigma_alpha=0.20,             # learning rate for standard deviation
-               sigma_decay=0.999,            # anneal standard deviation
-               sigma_limit=0.01,             # stop annealing if less than this
-               sigma_max_change=0.2,         # clips adaptive sigma to 20%
-               learning_rate=0.01,           # learning rate for standard deviation
-               learning_rate_decay = 0.9999, # annealing the learning rate
-               learning_rate_limit = 0.01,   # stop annealing learning rate
-               elite_ratio = 0,              # if > 0, then ignore learning_rate
-               popsize=256,                  # population size
-               average_baseline=True,        # set baseline to average of batch
-               weight_decay=0.01,            # weight decay coefficient
-               rank_fitness=True,            # use rank rather than fitness numbers
-               forget_best=True):            # don't keep the historical best solution
+    def tell(self, simulation_results):
+        '''updates internal variables based on the results from simulating the results from
+           self.ask '''
 
-    self.num_params = num_params
-    self.sigma_init = sigma_init
-    self.sigma_alpha = sigma_alpha
-    self.sigma_decay = sigma_decay
-    self.sigma_limit = sigma_limit
-    self.sigma_max_change = sigma_max_change
-    self.learning_rate = learning_rate
-    self.learning_rate_decay = learning_rate_decay
-    self.learning_rate_limit = learning_rate_limit
-    self.popsize = popsize
-    self.average_baseline = average_baseline
-    if self.average_baseline:
-      assert (self.popsize % 2 == 0), "Population size must be even"
-      self.batch_size = int(self.popsize / 2)
-    else:
-      assert (self.popsize & 1), "Population size must be odd"
-      self.batch_size = int((self.popsize - 1) / 2)
+        # input must be a numpy float array of the correct length
+        if len(simulation_results) != self.gen_size:
+          print "incorrect length of input"
+          return None
 
-    # option to use greedy es method to select next mu, rather than using drift param
-    self.elite_ratio = elite_ratio
-    self.elite_popsize = int(self.popsize * self.elite_ratio)
-    self.use_elite = False
-    if self.elite_popsize > 0:
-      self.use_elite = True
+        rewards = np.array(simulation_results)
+        
+        if self.rank_fitness:
+            rewards = compute_centered_ranks(rewards)
+        
+        if self.weight_decay > 0:
+            l2_decay = compute_weight_decay(self.weight_decay, self.solutions)
+            rewards += l2_decay
 
-    self.forget_best = forget_best
-    self.batch_reward = np.zeros(self.batch_size * 2)
-    self.mu = np.zeros(self.num_params)
-    self.sigma = np.ones(self.num_params) * self.sigma_init
-    self.curr_best_mu = np.zeros(self.num_params)
-    self.best_mu = np.zeros(self.num_params)
-    self.best_reward = 0
-    self.first_interation = True
-    self.weight_decay = weight_decay
-    self.rank_fitness = rank_fitness
-    if self.rank_fitness:
-      self.forget_best = True # always forget the best one if we rank
-    # choose optimizer
-    self.optimizer = Adam(self, learning_rate)
+        index_ordering = np.argsort(rewards)[::-1]
 
-    self.gen_size = self.popsize
+        best_reward = rewards[index_ordering[0]]
+        best_theta = self.solutions[index_ordering[0]]
 
-  def rms_stdev(self):
-    sigma = self.sigma
-    return np.mean(np.sqrt(sigma*sigma))
+        self.curr_best_reward = best_reward
+        self.curr_best_theta = best_theta
 
-  def ask(self):
-    '''returns a list of parameters'''
-    # antithetic sampling
-    self.epsilon = np.random.randn(self.batch_size, self.num_params) * self.sigma.reshape(1, self.num_params)
-    self.epsilon_full = np.concatenate([self.epsilon, - self.epsilon])
-    if self.average_baseline:
-      epsilon = self.epsilon_full
-    else:
-      # first population is mu, then positive epsilon, then negative epsilon
-      epsilon = np.concatenate([np.zeros((1, self.num_params)), self.epsilon_full])
-    solutions = self.mu.reshape(1, self.num_params) + epsilon
-    self.solutions = solutions
-    return solutions
+        # update our best parameters we are storing
+        if self.forget_best or (self.curr_best_reward > self.best_reward):
+            self.best_theta = best_theta
+            self.best_reward = self.curr_best_reward
 
-  def tell(self, reward_table_result):
-    # input must be a numpy float array
-    assert(len(reward_table_result) == self.popsize), "Inconsistent reward_table size reported."
+        # standardize the rewards to have a gaussian distribution
+        normalized_rewards = (rewards - np.mean(rewards)) / np.std(rewards)
+        change_theta = 1./(self.gen_size*self.sigma)*np.dot(self.epsilon.transpose(), normalized_rewards)
+        
+        self.theta += self.alpha * change_theta
 
-    reward_table = np.array(reward_table_result)
-    
-    if self.rank_fitness:
-      reward_table = compute_centered_ranks(reward_table)
-    
-    if self.weight_decay > 0:
-      l2_decay = compute_weight_decay(self.weight_decay, self.solutions)
-      reward_table += l2_decay
+        # adapt sigma if not already too small
+        if (self.sigma > self.sigma_lower_bound):
+            self.sigma *= self.sigma_mult
 
-    reward_offset = 1
-    if self.average_baseline:
-      b = np.mean(reward_table)
-      reward_offset = 0
-    else:
-      b = reward_table[0] # baseline
-      
-    reward = reward_table[reward_offset:]
-    if self.use_elite:
-      idx = np.argsort(reward)[::-1][0:self.elite_popsize]
-    else:
-      idx = np.argsort(reward)[::-1]
+        # adapt learning rate if not already too small
+        if (self.alpha > self.alpha_lower_bound):
+            self.alpha *= self.alpha_mult
 
-    best_reward = reward[idx[0]]
-    if (best_reward > b or self.average_baseline):
-      best_mu = self.mu + self.epsilon_full[idx[0]]
-      best_reward = reward[idx[0]]
-    else:
-      best_mu = self.mu
-      best_reward = b
+    def current_param(self):
+        return self.curr_best_theta
 
-    self.curr_best_reward = best_reward
-    self.curr_best_mu = best_mu
+    def set_theta(self, theta):
+        self.theta = np.array(theta)
 
-    if self.first_interation:
-      self.sigma = np.ones(self.num_params) * self.sigma_init
-      self.first_interation = False
-      self.best_reward = self.curr_best_reward
-      self.best_mu = best_mu
-    else:
-      if self.forget_best or (self.curr_best_reward > self.best_reward):
-        self.best_mu = best_mu
-        self.best_reward = self.curr_best_reward
-
-    # short hand
-    epsilon = self.epsilon
-    sigma = self.sigma
-
-    # update the mean
-
-    # move mean to the average of the best idx means
-    if self.use_elite:
-      self.mu += self.epsilon_full[idx].mean(axis=0)
-    else:
-      rT = (reward[:self.batch_size] - reward[self.batch_size:])
-      change_mu = np.dot(rT, epsilon)
-      self.optimizer.stepsize = self.learning_rate
-      update_ratio = self.optimizer.update(-change_mu) # adam, rmsprop, momentum, etc.
-      #self.mu += (change_mu * self.learning_rate) # normal SGD method
-
-    # adaptive sigma
-    # normalization
-    if (self.sigma_alpha > 0):
-      stdev_reward = 1.0
-      if not self.rank_fitness:
-        stdev_reward = reward.std()
-      S = ((epsilon * epsilon - (sigma * sigma).reshape(1, self.num_params)) / sigma.reshape(1, self.num_params))
-      reward_avg = (reward[:self.batch_size] + reward[self.batch_size:]) / 2.0
-      rS = reward_avg - b
-      delta_sigma = (np.dot(rS, S)) / (2 * self.batch_size * stdev_reward)
-
-      # adjust sigma according to the adaptive sigma calculation
-      # for stability, don't let sigma move more than 10% of orig value
-      change_sigma = self.sigma_alpha * delta_sigma
-      change_sigma = np.minimum(change_sigma, self.sigma_max_change * self.sigma)
-      change_sigma = np.maximum(change_sigma, - self.sigma_max_change * self.sigma)
-      self.sigma += change_sigma
-
-    if (self.sigma_decay < 1):
-      self.sigma[self.sigma > self.sigma_limit] *= self.sigma_decay
-    
-    if (self.learning_rate_decay < 1 and self.learning_rate > self.learning_rate_limit):
-      self.learning_rate *= self.learning_rate_decay
-
-  def current_param(self):
-    return self.curr_best_mu
-
-  def set_mu(self, mu):
-    self.mu = np.array(mu)
-  
-  def best_param(self):
-    return self.best_mu
-
-  def result(self): # return best params so far, along with historically best reward, curr reward, sigma
-    return self.best_mu
-
-
-
-
+    def result(self):
+        return self.best_theta
