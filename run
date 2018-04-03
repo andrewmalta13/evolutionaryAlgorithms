@@ -1,0 +1,11 @@
+#!/bin/bash
+#SBATCH --partition=scavenge
+#SBATCH --job-name=bipedal_walker_es
+#SBATCH --ntasks=64
+#SBATCH --ntasks-per-node=1
+#SBATCH --mem-per-cpu=6000 
+#SBATCH --time=12:00:00
+#SBATCH --mail-type=ALL
+#SBATCH --mail-user=email
+
+python train.py -e 16 -n 64 -t 4 --start_file BipedalWalker-v2.openes.4.32.best.json
