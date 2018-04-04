@@ -86,7 +86,7 @@ class CMA_ES:
         tmp = self.mean
         sorted_indices = np.argsort(fitnesses)
 
-         # update m
+        # update m
         self.mean = 0
         # using equal weighting 
         for i in sorted_indices[0:self.mu]:
@@ -145,30 +145,35 @@ can be found here:
 (https://github.com/openai/evolution-strategies-starter/blob/master/es_distributed/es.py)
 '''
 def compute_ranks(x):
-  """
-  Returns ranks in [0, len(x))
-  Note: This is different from scipy.stats.rankdata, which returns ranks in [1, len(x)].
-  """
-  assert x.ndim == 1
-  ranks = np.empty(len(x), dtype=int)
-  ranks[x.argsort()] = np.arange(len(x))
-  return ranks
+    """
+    Returns ranks in [0, len(x))
+    Note: This is different from scipy.stats.rankdata, which returns ranks in [1, len(x)].
+    """
+    assert x.ndim == 1
+    ranks = np.empty(len(x), dtype=int)
+    ranks[x.argsort()] = np.arange(len(x))
+    return ranks
 
 def compute_centered_ranks(x):
-  """
-  https://github.com/openai/evolution-strategies-starter/blob/master/es_distributed/es.py
-  """
-  y = compute_ranks(x.ravel()).reshape(x.shape).astype(np.float32)
-  y /= (x.size - 1)
-  y -= .5
-  return y
+    """
+    https://github.com/openai/evolution-strategies-starter/blob/master/es_distributed/es.py
+    """
+    y = compute_ranks(x.ravel()).reshape(x.shape).astype(np.float32)
+    y /= (x.size - 1)
+    y -= .5
+    return y
 
-def compute_weight_decay(weight_decay, model_param_list):
-    model_param_grid = np.array(model_param_list)
-    return -weight_decay * np.mean(model_param_grid * model_param_grid, axis=1)
+def compute_weight_decay(weight_decay_coef, theta):
+    """
+    compute the weight decay for the model parameters. Used to encourage the 
+    mean model parameter squared to not get too large. 
+    """
+    flattened = np.array(theta)
+    mean_sq_theta = np.mean(flattened * flattened, axis=1)
+    return -weight_decay_coef * mean_sq_theta
 
 class OpenES:
-    ''' Basic Version of OpenAI Evolution Strategies.'''
+    ''' Basic Version of OpenAI Evolution Strategy.'''
     def __init__(self, args):
         self.theta_dim = args["theta_dim"]
         self.sigma = args["sigma_start"]
@@ -213,14 +218,15 @@ class OpenES:
 
         # input must be a numpy float array of the correct length
         if len(simulation_results) != self.gen_size:
-          print "incorrect length of input"
-          return None
+            print "incorrect length of input"
+            return None
 
         rewards = np.array(simulation_results)
         
         if self.rank_fitness:
             rewards = compute_centered_ranks(rewards)
         
+        # decay the weights of our neural network using
         if self.weight_decay > 0:
             l2_decay = compute_weight_decay(self.weight_decay, self.solutions)
             rewards += l2_decay

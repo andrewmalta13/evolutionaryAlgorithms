@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --partition=scavenge
-#SBATCH --job-name=bipedal_walker_es
+#SBATCH --job-name=bipedal_walker_hardcore_es
 #SBATCH --ntasks=64
 #SBATCH --ntasks-per-node=1
 #SBATCH --mem-per-cpu=6000 

@@ -3,3 +3,4 @@ estool
 estool/*
 *.pyc
 log/*
+solutions/*

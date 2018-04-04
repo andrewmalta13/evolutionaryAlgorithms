@@ -15,16 +15,19 @@ import gym
 ### ES related code
 num_episode = 1
 eval_steps = 25 # evaluate every N_eval steps
-retrain_mode = True
-cap_time_mode = True
 
 num_worker = 8
 num_worker_trial = 16
 
 population = num_worker * num_worker_trial
 
-gamename = 'BipedalWalker-v2'
+gamename = 'BipedalWalkerHardcore-v2'
+cap_time_mode = True
 antithetic = False
+
+# parameter to determine how to calculate the meta-fitness score:
+# run the simulate function a number of times and calculate a statistic
+# that measures the robustness
 batch_mode = 'mean'
 
 # seed for reproducibility
@@ -47,7 +50,7 @@ SOLUTION_PACKET_SIZE = (5+num_params)*num_worker_trial
 RESULT_PACKET_SIZE = 4*num_worker_trial
 ###
 
-def initialize_settings(sigma_init=0.1, sigma_decay=0.9999):
+def initialize_settings():
   global population, filebase, model, num_params, es, PRECISION, SOLUTION_PACKET_SIZE, RESULT_PACKET_SIZE
   population = num_worker * num_worker_trial
   filebase = 'log/'+gamename+'.'+optimizer+'.'+str(num_episode)+'.'+str(population)
@@ -83,7 +86,6 @@ def initialize_settings(sigma_init=0.1, sigma_decay=0.9999):
 
     es = CMA_ES(args)
   elif optimizer == "openes":
-
     args = {"theta_dim": model.num_flat_features(),
             "sigma_start": .1,
             "sigma_mult": .999,
@@ -112,18 +114,6 @@ def initialize_settings(sigma_init=0.1, sigma_decay=0.9999):
 def sprint(*args):
   print(args) # if python3, can do print(*args)
   sys.stdout.flush()
-
-class OldSeeder:
-  def __init__(self, init_seed=0):
-    self._seed = init_seed
-  def next_seed(self):
-    result = self._seed
-    self._seed += 1
-    return result
-  def next_batch(self, batch_size):
-    result = np.arange(self._seed, self._seed+batch_size).tolist()
-    self._seed += batch_size
-    return result
 
 class Seeder:
   def __init__(self, init_seed=0):
@@ -372,7 +362,7 @@ def main(args):
   seed_start = args.seed_start
   start_file = args.start_file
 
-  initialize_settings(args.sigma_init, args.sigma_decay)
+  initialize_settings()
 
   sprint("process", rank, "out of total ", comm.Get_size(), "started")
   if (rank == 0):
@@ -413,12 +403,7 @@ if __name__ == "__main__":
   parser.add_argument('--eval_steps', type=int, default=25, help='evaluate every eval_steps step')
   parser.add_argument('-n', '--num_worker', type=int, default=8)
   parser.add_argument('-t', '--num_worker_trial', type=int, help='trials per worker', default=4)
-  parser.add_argument('--antithetic', type=int, default=1, help='set to 0 to disable antithetic sampling')
-  parser.add_argument('--cap_time', type=int, default=0, help='set to 0 to disable capping timesteps to 2x of average.')
-  parser.add_argument('--retrain', type=int, default=0, help='set to 0 to disable retraining every eval_steps if results suck.\n only works w/ ses, openes, pepg.')
   parser.add_argument('-s', '--seed_start', type=int, default=111, help='initial seed')
-  parser.add_argument('--sigma_init', type=float, default=0.10, help='sigma_init')
-  parser.add_argument('--sigma_decay', type=float, default=0.999, help='sigma_decay')
   parser.add_argument('--start_file', type=str, default=None, help='')
 
   args = parser.parse_args()

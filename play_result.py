@@ -5,7 +5,8 @@ import json
 from simulate import simulate, evaluate
 
 if __name__ ==  "__main__":
-    gamename = 'BipedalWalker-v2'
+    # gamename = 'BipedalWalker-v2'
+    gamename = 'BipedalWalkerHardcore-v2'
     env = gym.make(gamename)
 
     command = sys.argv[1]
