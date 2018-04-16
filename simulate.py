@@ -10,7 +10,6 @@ def simulate(env, model_cls, weights, num_trials, bipedal_hack=False, seed=None,
         best_reward = -float("inf")
         total = 0
         stumbled = False  # hack from estool for bipedal hardcore
-        re
 
         while not done:
             if render:
@@ -25,9 +24,9 @@ def simulate(env, model_cls, weights, num_trials, bipedal_hack=False, seed=None,
                 stumbled = True
 
             # reward agents for completing the task and not stumbling
-            if done and bipedal_hack and (not stumbled) and (total_reward > 300):
-              total += 100
-            break
+            if done and bipedal_hack and (not stumbled) and (total > 300):
+                total += 100
+                break
 
             total += reward
 
