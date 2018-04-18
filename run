@@ -8,4 +8,6 @@
 #SBATCH --mail-type=ALL
 #SBATCH --mail-user=email
 
-python train.py -e 16 -n 64 -t 4 --start_file BipedalWalker-v2.openes.4.32.best.json
+source activate amth
+pip install mpi4py
+python train.py -e 16 -n 64 -t 4 --start_file log/BipedalWalker-v2-solution2.json
