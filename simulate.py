@@ -1,7 +1,7 @@
 import numpy as np
 
 
-def simulate(env, model_cls, weights, num_trials, bipedal_hack=False, seed=None, render=False):
+def simulate(env, model_cls, weights, num_trials, seed=None, render=False):
     m = model_cls(weights)
     rewards = []
     for _ in xrange(num_trials):
@@ -9,6 +9,7 @@ def simulate(env, model_cls, weights, num_trials, bipedal_hack=False, seed=None,
         done = False
         best_reward = -float("inf")
         total = 0
+        bipedal_hack=True
         stumbled = False  # hack from estool for bipedal hardcore
 
         while not done:
