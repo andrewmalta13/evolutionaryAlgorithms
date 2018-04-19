@@ -33,7 +33,7 @@ batch_mode = 'mean'
 # seed for reproducibility
 seed_start = 0
 
-### name of the file (can override):
+# name of the file (can override):
 filebase = None
 
 model = None
@@ -276,9 +276,16 @@ def master(starting_file):
   best_model_params_eval = None
 
   max_len = -1 # max time steps (-1 means ignore)
+  restart_counter = 0
 
   while True:
     t += 1
+
+    # go back to your best solution if after 15 generations you
+    # don't see an improvement in your fitness. 
+    if restart_counter == 15:
+      restart_counter = 0
+      es.set_theta(best_model_params_eval)
 
     solutions = es.ask()
 
@@ -346,6 +353,8 @@ def master(starting_file):
       if (len(eval_log) == 1 or reward_eval > best_reward_eval):
         best_reward_eval = reward_eval
         best_model_params_eval = model_params_quantized
+      else:
+        restart_counter += 1
   
       with open(filename_best, 'wt') as out:
         res = json.dump([best_model_params_eval, best_reward_eval], out, sort_keys=True, indent=0, separators=(',', ': '))
