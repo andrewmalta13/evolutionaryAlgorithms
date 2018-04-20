@@ -284,6 +284,7 @@ def master(starting_file):
     # go back to your best solution if after 15 generations you
     # don't see an improvement in your fitness. 
     if restart_counter == 15:
+      sprint("---resest theta to previous best---")
       restart_counter = 0
       es.set_theta(best_model_params_eval)
 
@@ -355,6 +356,7 @@ def master(starting_file):
         best_model_params_eval = model_params_quantized
       else:
         restart_counter += 1
+        sprint("---restart counter: ", restart_counter, "---")
   
       with open(filename_best, 'wt') as out:
         res = json.dump([best_model_params_eval, best_reward_eval], out, sort_keys=True, indent=0, separators=(',', ': '))

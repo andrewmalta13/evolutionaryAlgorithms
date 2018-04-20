@@ -9,7 +9,7 @@ def simulate(env, model_cls, weights, num_trials, seed=None, render=False):
         done = False
         best_reward = -float("inf")
         total = 0
-        bipedal_hack=False
+        bipedal_hack = False
         stumbled = False  # hack from estool for bipedal hardcore
 
         while not done:
