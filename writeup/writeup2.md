@@ -4,7 +4,7 @@
 ### Author:  `Andrew Malta`
 
 ## Introduction
-In this project, I explored the application of evolutionary algorithms to learn policies for continuous control agents in the OpenAI Gym.  The OpenAI Gym, while traditionally used to measure the performance of reinforcement learning approaches on toy environments from Atari games to motion tasks, provided me with an ideal framework to test the performance of evolutionary algorithms on learning deterministic policies for agents. I first got interested in this topic when I read OpenAI's paper, "Evolution Strategies as a Scalable Alternative to Reinforcement Learning", which experimentally demonstrated that it is possible to rival the performance of reinforcement learning in many tasks while gaining the desirable property of highly parallelizable training procedures.  This report along with an excellent blog post about applying these techniques to the OpenAI gym in particular, both referenced at the bottom, encouraged me to try my hand at some of the hardest control tasks offered in the OpenAI gym. 
+In this project, I explore the application of evolutionary algorithms to learn policies for continuous control agents in the OpenAI Gym.  The OpenAI Gym, while traditionally used to measure the performance of reinforcement learning approaches on toy environments from Atari games to motion tasks, provided me with an ideal framework to test the performance of evolutionary algorithms on learning deterministic policies for agents. I first got interested in this topic when I read OpenAI's paper, "Evolution Strategies as a Scalable Alternative to Reinforcement Learning", which experimentally demonstrated that it is possible to rival the performance of reinforcement learning in many tasks while gaining the desirable property of having highly parallelizable training procedures.  This report along with an excellent blog post by David Ha about applying these techniques to the OpenAI gym in particular, both referenced at the bottom, encouraged me to try my hand at some of the hardest control tasks offered in the OpenAI gym. 
 
 
 ## Environments
@@ -14,13 +14,13 @@ The input to the model is a stream of 24 dimensional vectors each of which inclu
 
 The normal version of the environment has small random variation in the terrain, but all in all it is pretty flat.
 
-![Alt Text](https://media.giphy.com/media/NVmoxc9Jjri0r8D6fz/giphy.gif)
+![Random Agent on BipedalWalker-v2](https://media.giphy.com/media/NVmoxc9Jjri0r8D6fz/giphy.gif)
 
 The hardcore of the environment, on the other hand, has pits, ramps, and obstructions
 of various sizes that the agent has to navigate.  Due to this terrain, it is much
 easier for the agent to get stuck in local minima, as it can learn how to navigate some of the terrain but not the rest.
 
-![Alt Text](https://media.giphy.com/media/1qk0RMLewHC6LnYPI1/giphy.gif)
+![Random Agent on BipedalWalkerHardore-v2](https://media.giphy.com/media/1qk0RMLewHC6LnYPI1/giphy.gif)
 
 The hardcore task poses a major leap in difficulty as the terrain varies much more significantly for each run of the environment than the normal version of the environment does.  This forces you to learn a robust policy to work in any configuration of these ramps, pits, and obstructions rather than learn a
 particular motor sequence that works for a particular environment.  This was not a major issue in the normal bipedal walking environment as the terrain variation was minimal, allowing the evolutionary algorithm to simply learn a motor sequence that propelled itself forward while keeping its balance.  
@@ -35,53 +35,88 @@ The model I ended up choosing was a feed-forward nerual network with 2 hidden la
 import numpy as np
 
 class Net():
-  def __init__(self, weights):
-    # an affine operation: y = Wx + b
-    self.dimensions = [(24, 40), (40, 40), (40, 4)]
-    self.layers = []
-    self.biases = []
-    if not weights is None:
-      tmp = 0
-      for d in self.dimensions:
-        length = np.prod(d)
-        self.layers.append(np.reshape(weights[tmp: tmp + length], d))
-        tmp += length
-        self.biases.append(np.reshape(weights[tmp: tmp + d[-1]], (1, d[-1])))
-        tmp += d[-1]
+    def __init__(self, weights):
+        # an affine operation: y = Wx + b
+        self.dimensions = [(24, 40), (40, 40), (40, 4)]
+        self.layers = []
+        self.biases = []
+        if not weights is None:
+            tmp = 0
+            for d in self.dimensions:
+                length = np.prod(d)
+                self.layers.append(np.reshape(weights[tmp: tmp + length], d))
+                tmp += length
+                self.biases.append(np.reshape(weights[tmp: tmp + d[-1]], (1, d[-1])))
+                tmp += d[-1]
 
-  def set_model_params(self, weights):
-    self.layers = []
-    self.biases = []
+    def set_model_params(self, weights):
+        self.layers = []
+        self.biases = []
 
-    tmp = 0
-    for d in self.dimensions:
-      length = np.prod(d)
-      self.layers.append(np.reshape(weights[tmp: tmp + length], d))
-      tmp += length
-      self.biases.append(np.reshape(weights[tmp: tmp + d[-1]], (1, d[-1])))
-      tmp += d[-1]
-    
-  def forward(self, x):
-    working_tensor = x
-    for i in xrange(len(self.layers)):
-      affine = np.dot(working_tensor, self.layers[i]) + self.biases[i]
-      working_tensor = np.tanh(affine)
-    return working_tensor[0]
+        tmp = 0
+        for d in self.dimensions:
+            length = np.prod(d)
+            self.layers.append(np.reshape(weights[tmp: tmp + length], d))
+            tmp += length
+            self.biases.append(np.reshape(weights[tmp: tmp + d[-1]], (1, d[-1])))
+            tmp += d[-1]
+        
+    def forward(self, x):
+        working_tensor = x
+        for i in xrange(len(self.layers)):
+            affine = np.dot(working_tensor, self.layers[i]) + self.biases[i]
+            working_tensor = np.tanh(affine)
+        return working_tensor[0]
 
-  def num_flat_features(self):
-    ret = 0
-    for d in self.dimensions:
-      ret += np.prod(d)
-      ret += d[-1]
-    return ret
+    def num_flat_features(self):
+        ret = 0
+        for d in self.dimensions:
+            ret += np.prod(d)
+            ret += d[-1]
+        return ret
 ```
 
+## Fitness Computation
+
+As far as the fitness function goes, I didn't add many bells and whistles except an optional parameter to allow the scores to be averaged across a specified number of trials.  I did this in an attempt to improve the robustness of the model, especially for the Bipedal Walker Hardcore environment as the agent could easily do well on one randomly generated terrain and poorly on another.
+
+
+```python
+import numpy as np
+
+def simulate(env, model_cls, weights, num_trials, seed=None, render=False):
+    m = model_cls(weights)
+    rewards = []
+    for _ in xrange(num_trials):
+        observation = env.reset()
+        done = False
+        best_reward = -float("inf")
+        total = 0
+
+        while not done:
+            if render:
+                env.render()
+            action = m.forward(observation)
+            observation, reward, done, info = env.step(action)
+
+            total += reward
+
+        rewards.append(total)
+
+    return np.mean(rewards), range(num_trials)
+
+def evaluate(env, model_cls, weights):
+    return simulate(env, model_cls, weights, 100, None)[0]
+```
+
+In the above code snippet, we instantiate our model with the weights that are passed in and run a simulation using our network num_trials number of times.  We then take the average reward across these trials and return the result.  We also see the evaluate function, which gives you what your average score is over 100 trials, which is what the OpenAI gym uses to compare different approaches to the environment.
+
 ## Optimization
-I played around with a number of evolutionary algorithms, some of which do not have a canonical name and others that certainly do. When I was performing experiments on some other environments, that are not described in detail in this report, I was still not using the MPI interface I adapted from ESTool.
+I played around with a number of evolutionary algorithms, some of which do not have a canonical name and others that certainly do. When I was performing experiments on some other environments, that are not described in detail in this report, I was not using the MPI interface I adapted from ESTool.  For each algorithm I will give a little intuition about how to interpret what it is doing, provide pseudocode, and list my python 2 implementation of the algorithm.
 
 
 ### Ask/Tell Interface
-One design pattern that I found incredibly useful both to think about the evolutionary algorithms conceptually, and to implement them in python was the ask/tell interface that was described in the blog post about ESTool.  Conceptually, it is very simple.  The algorithm exposes an **ask** function that will supply the user with new parameter vectors that are sampled in some way from the current state of the algorithm.  The user then takes these new parameter vectors and computes the fitness score for each of them.  After the user completes the fitness evaluations, the user calls the algorithms **tell** function, which supplies the algorithm with the fitnesses of the parameter vectors that it supplied the user.  The algorithm then uses this information to update any internal state of the algorithm to inform the next iteration of the ask/tell interface.
+One design pattern that I found incredibly useful both to think about the evolutionary algorithms conceptually, and to implement them in python was the ask/tell interface that was described in David Ha's second blog post describing ESTool, "Evolving Stable Strategies".  Conceptually, it is very simple.  The algorithm exposes an **ask** function that will supply the user with new parameter vectors that are sampled in some way from the current state of the algorithm.  The user then takes these new parameter vectors and computes the fitness score for each of them.  After the user completes the fitness evaluations, the user calls the algorithms **tell** function, which supplies the algorithm with the fitnesses of the parameter vectors that it supplied the user.  The algorithm then uses this information to update any internal state of the algorithm to inform the next iteration of the ask/tell interface.
 
 Outside of improvements to code readability, this paradigm allows the programmer to abstract away how the fitnesses are being computed.  More specifically, it allows the programmer to decide if they want to parallelize this computation, which they often might, without having the parallelization code to have to touch the implementation of the optimization routine.
 
@@ -491,7 +526,7 @@ As for the Hardcore environment, I was also pleased with the results that the mo
 ![Alt Text](https://i.imgur.com/W6xUQOT.gif)
 
 ## Conclusion
-In my mind before I started the project and before I read OpenAI's paper, I had always seen evolutionary algorithms as cute black-box optimzation methods that did not have serious application in training modern machine learning models; however, as we can see in the results section, these algorithms may actually have a place in the traditional reinforcement learning setting.  For parameter vectors that aren't incredibly large, such as in the millions and beyond, evolutionary algorithms offer an enticing option to train continuous control agents.  The ability to parallelize training on a CPU cluster offers a unique advantage to these methods, and people with access to a large number of cores might be able to rival reinforcement learning schemes.
+In my mind before I started the project and before I read OpenAI's paper, I had always seen evolutionary algorithms as cute black-box optimzation methods that did not have serious application in training modern machine learning models; however, as I found out firsthand by getting some spectacular results on these hard environments, these algorithms may actually have a place in the traditional reinforcement learning setting.  For parameter vectors that aren't incredibly large, such as in the millions and beyond, evolutionary algorithms offer an enticing option to train continuous control agents.  The ability to parallelize training on a CPU cluster offers a unique advantage to these methods, and people with access to a large number of cores might be able to rival reinforcement learning schemes.
 
 ## References
 

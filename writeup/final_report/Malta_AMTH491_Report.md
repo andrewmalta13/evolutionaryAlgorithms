@@ -8,7 +8,7 @@ In this project, I explore the application of evolutionary algorithms to learn p
 
 
 ## Environments
-In choosing an environment to experiment with, I first looked for a task that would be particularly amenable to reinforcement learning, as I wanted to see that a typical reinforcment learning task could be solved through the use of an evolutionary algorithm.  I settled on the Bipedal walking task in the OpenAI gym as it seemed to meet  these criteria and due to the fact that it had both a normal and a hadcore version, which I thought I might be able to exploit in the training process. Very simply, the goal of the task is to have your agent navigate itself across the terrain in front of it and reach the goal on the other end.  The reward function penalizes stumbling, defined to be when the head hits the ground, and the use of excess motor torque.  A good solution is robust to the terrain, but does not use too much motor torque to maintain this robustness. 
+In choosing an environment to experiment with, I first looked for a task that would be particularly amenable to reinforcement learning, as I wanted to see that a typical reinforcment learning task could be solved through the use of an evolutionary algorithm.  I settled on the Bipedal walking task in the OpenAI gym as it seemed to meet  these criteria and due to the fact that it had both a normal and a hardcore version, which I thought I might be able to exploit in the training process. Very simply, the goal of the task is to have your agent navigate itself across the terrain in front of it and reach the goal on the other end.  The reward function penalizes stumbling, defined to be when the head hits the ground, and the use of excess motor torque.  A good solution is robust to the terrain, but does not use too much motor torque to maintain this robustness. 
 
 The input to the model is a stream of 24 dimensional vectors each of which includes hull angle speed, angular velocity, horizontal speed, vertical speed, position of joints and joints angular speed, leg contacts with the ground, and 10 lidar inputs that encode objects in the vicinity. The output is a 4 dimensional vector representing the amount of torque to apply to each of the 4 joints on the agent.
 
@@ -16,14 +16,14 @@ The normal version of the environment has small random variation in the terrain,
 
 ![Random Agent on BipedalWalker-v2](https://media.giphy.com/media/NVmoxc9Jjri0r8D6fz/giphy.gif)
 
-The hardcore of the environment, on the other hand, has pits, ramps, and obstructions
+The hardcore version of the environment, on the other hand, has pits, ramps, and obstructions
 of various sizes that the agent has to navigate.  Due to this terrain, it is much
 easier for the agent to get stuck in local minima, as it can learn how to navigate some of the terrain but not the rest.
 
 ![Random Agent on BipedalWalkerHardore-v2](https://media.giphy.com/media/1qk0RMLewHC6LnYPI1/giphy.gif)
 
 The hardcore task poses a major leap in difficulty as the terrain varies much more significantly for each run of the environment than the normal version of the environment does.  This forces you to learn a robust policy to work in any configuration of these ramps, pits, and obstructions rather than learn a
-particular motor sequence that works for a particular environment.  This was not a major issue in the normal bipedal walking environment as the terrain variation was minimal, allowing the evolutionary algorithm to simply learn a motor sequence that propelled itself forward while keeping its balance.  
+particular motor sequence that works for one specific instantiation environment.  This was not a major issue in the normal bipedal walking environment as the terrain variation was minimal, allowing the evolutionary algorithm to simply learn a motor sequence that propelled itself forward while keeping its balance.  
 
 ## Model
 For this project, I decided to roll my own small neural network framework as I wanted to have direct access to the parameterization of the weights and biases of the network through a single flat vector.  This, in my mind, was the easiest way to interface the evoltionary algorithms with my model as most libraries make you go out of your way to do something other than the classic back propagation with some optimizer.  I wanted to keep the model simple because I wanted to try keep the focus on the optimzation procedure, and I wanted the optimzation routine to run quickly.
@@ -78,7 +78,7 @@ class Net():
 
 ## Fitness Computation
 
-As far as the fitness function goes, I didn't add many bells and whistles except an optional parameter to allow the scores to be averaged across a specified number of trials.  I did this in an attempt to improve the robustness of the model, especially for the Bipedal Walker Hardcore environment as the agent could easily do well on one randomly generated terrain and poorly on another.
+As far as the fitness function goes, I didn't add many bells and whistles aside from an optional parameter to allow the scores to be averaged across a specified number of trials.  I did this in an attempt to improve the robustness of the model, especially for the Bipedal Walker Hardcore environment as the agent could easily do well on one randomly generated terrain and poorly on another.
 
 
 ```python
@@ -112,8 +112,7 @@ def evaluate(env, model_cls, weights):
 In the above code snippet, we instantiate our model with the weights that are passed in and run a simulation using our network num_trials number of times.  We then take the average reward across these trials and return the result.  We also see the evaluate function, which gives you what your average score is over 100 trials, which is what the OpenAI gym uses to compare different approaches to the environment.
 
 ## Optimization
-I played around with a number of evolutionary algorithms, some of which do not have a canonical name and others that certainly do. When I was performing experiments on some other environments, that are not described in detail in this report, I was not using the MPI interface I adapted from ESTool.  For each algorithm I will give a little intuition about how to interpret what it is doing, provide pseudocode, and list my python 2 implementation of the algorithm.
-
+I played around with a number of evolutionary algorithms, some of which do not have a canonical name and others that certainly do.  For each algorithm I will give a little intuition about how to interpret what it is doing, provide pseudocode, and list my python 2 implementation of the algorithm.
 
 ### Ask/Tell Interface
 One design pattern that I found incredibly useful both to think about the evolutionary algorithms conceptually, and to implement them in python was the ask/tell interface that was described in David Ha's second blog post describing ESTool, "Evolving Stable Strategies".  Conceptually, it is very simple.  The algorithm exposes an **ask** function that will supply the user with new parameter vectors that are sampled in some way from the current state of the algorithm.  The user then takes these new parameter vectors and computes the fitness score for each of them.  After the user completes the fitness evaluations, the user calls the algorithms **tell** function, which supplies the algorithm with the fitnesses of the parameter vectors that it supplied the user.  The algorithm then uses this information to update any internal state of the algorithm to inform the next iteration of the ask/tell interface.
@@ -121,7 +120,9 @@ One design pattern that I found incredibly useful both to think about the evolut
 Outside of improvements to code readability, this paradigm allows the programmer to abstract away how the fitnesses are being computed.  More specifically, it allows the programmer to decide if they want to parallelize this computation, which they often might, without having the parallelization code to have to touch the implementation of the optimization routine.
 
 ### WinnerES
-WinnerES is a basic template for a evolutionary algorithm with a simplified update step of just choosing the best child from the generation and using it as the starting point of the next generation.  This is not great for a number of reasons, but it could work for some simple tasks as I saw.  In other words this can be thought of as a randomized sampling of directions on the objective function to approximate the gradient at your current parameter vector.  The larger your generation size, n, the better your approximation of the gradient gets, but the longer the computation takes per step.
+WinnerES is a basic template for a evolutionary algorithm with an update step in which it chooses the best child from the generation and uses it as the starting point of the next generation.  This is not great for a number of reasons, but it works for some simple tasks and provides a simplified view of how an evolutionary algorithm works.  
+
+If you wanted to interpret it slightly more mathematically, this algorithm can be seen as taking a randomized sampling of directions on the objective function to approximate the gradient at your current parameter vector.  The larger your generation size, n, the better your approximation of the gradient gets, but the longer the computation takes per step.
 
 ### Pseudocode for WinnerES
 
@@ -129,13 +130,13 @@ WinnerES is a basic template for a evolutionary algorithm with a simplified upda
 ```python
 %%latex
 
-\begin{align}
+\begin{align*}
     &\theta_{0} = \vec{0} \\
     &\text{for some number of generations:} \\
         &\hspace{1cm} \epsilon_{1,...,n} \sim N(\sigma, I) \\
-        &\hspace{1cm}  j = \text{argmax}_{i} f(\theta_t + \epsilon_i) \\
+        &\hspace{1cm}  j = \text{argmax}_{i} ~ f(\theta_t + \epsilon_i) \\
         &\hspace{1cm}  \theta_{t+1} = \theta_{t} + \epsilon_j \\
-\end{align}
+\end{align*}
 
 ```
 
@@ -145,7 +146,7 @@ WinnerES is a basic template for a evolutionary algorithm with a simplified upda
     &\theta_{0} = \vec{0} \\
     &\text{for some number of generations:} \\
         &\hspace{1cm} \epsilon_{1,...,n} \sim N(\sigma, I) \\
-        &\hspace{1cm}  j = \text{argmax}_{i} f(\theta_t + \epsilon_i) \\
+        &\hspace{1cm}  j = \text{argmax}_{i} ~ f(\theta_t + \epsilon_i) \\
         &\hspace{1cm}  \theta_{t+1} = \theta_{t} + \epsilon_j \\
 \end{align}
 
@@ -180,7 +181,7 @@ class Winner_ES:
 
 ### Single Threaded OpenES
 
-The next algorithm I implemented and tested on some toy examples was the non-parallelized version of OpenAI's evolutionary strategy, which is described in algorithm 1 in the paper in the references.  In my code I reference it as WeightedAverageES, and the updates are as follows:
+The next algorithm I implemented and tested on some toy examples was the non-parallelized version of OpenAI's evolutionary strategy, which is described in detail in algorithm 1 in the paper, "Evolution strategies as a scalable alternative to reinforcement learning", listed in the references.  In my code I reference it as WeightedAverageES, and the updates are as follows:
 
 ### Pseudocode for Single Threaded OpenES
 
@@ -188,13 +189,14 @@ The next algorithm I implemented and tested on some toy examples was the non-par
 ```python
 %%latex
 
-\begin{align}
+\begin{align*}
     &\theta_{0} = \vec{0} \\
     &\text{for some number of generations:} \\
       &\hspace{1cm} \epsilon){1,...,n} \sim N(\sigma, I)\\
       &\hspace{1cm} f_i = f(\theta_t + \epsilon_i) \\
-      &\hspace{1cm} \theta_{t+1} = \theta_t + \frac{\alpha}{n\sigma} \sum_{i}^n f_i * \epsilon_i \\
-\end{align}
+      &\hspace{1cm} \theta_{t+1} = 
+        \theta_t + \frac{\alpha}{n\sigma} \sum_{i}^n f_i * \epsilon_i \\
+\end{align*}
 ```
 
 
@@ -204,7 +206,8 @@ The next algorithm I implemented and tested on some toy examples was the non-par
     &\text{for some number of generations:} \\
       &\hspace{1cm} \epsilon){1,...,n} \sim N(\sigma, I)\\
       &\hspace{1cm} f_i = f(\theta_t + \epsilon_i) \\
-      &\hspace{1cm} \theta_{t+1} = \theta_t + \frac{\alpha}{n\sigma} \sum_{i}^n f_i * \epsilon_i \\
+      &\hspace{1cm} \theta_{t+1} = 
+        \theta_t + \frac{\alpha}{n\sigma} \sum_{i}^n f_i * \epsilon_i \\
 \end{align}
 
 
@@ -247,10 +250,10 @@ Note that this algorithm is very similar in spirit to the basic evolutionary alg
 
 ### CMA-ES (Covariance Matrix Adaptation)
 
-CMA-ES is one of the more famous gradient-less optimization routines for non-convex optimization problems.  It too, is an evolutionary algorithm; however it has significantly more bells and whistles than previously presented algorithms.  The most salient difference, from which CMA gets its name, is the way that the algorithm handles pairwise interactions between parameters in vector it optimizing over.  It operates by attempting to maximize the liklihood of sampling previously good candidates and fruitful search steps.  This algorithm does not scale extremely well with the length of the parameter vector, as one of the update steps involves inverting the covariance matrix $C$.  As of now, the best known algorihtms for computing an inverse of a matrix runs in $O(n^2.373)$ time, which will give us trouble when we approach n of about 10,000.
+CMA-ES is one of the more famous gradient-less optimization routines for non-convex optimization problems.  It too, is an evolutionary algorithm; however it has significantly more bells and whistles than previously presented algorithms.  The most salient difference, from which CMA gets its name, is the way that the algorithm handles pairwise interactions between parameters in the vector it optimizing over.  It operates by attempting to maximize the liklihood of sampling previously good candidates and fruitful search steps.  This algorithm does not scale extremely well with the length of the parameter vector, as one of the update steps involves inverting the covariance matrix $C$.  As of now, the best known algorihtms for computing an inverse of a matrix runs in $O(n^2.373)$ time, which will give us trouble when we approach n of about 10,000.
 
 ### Pseudocode for CMA-ES
-<img src="files/cma_pseudo_code.png">
+<img src="https://i.imgur.com/GIcOyry.png">
 
 Image Source: https://en.wikipedia.org/wiki/CMA-ES#Algorithm
 
@@ -349,7 +352,7 @@ class CMA_ES:
 
 ### OpenES
 
-Lastly, I implemented OpenAI's OpenES algorithm, with some small additions that are common to evolutionary algorithms, such as a weight decay, an adaptive learning rate, and adaptive standard deviation for the mutation rate.  The basic algorithm is the same as we described before, however there is some added complexity in setting up the algorithm to work efficiently under the parallel setting.  This is the algorithm that I was able to get quick convergence with to reasonable solutions to the somewhat high dimensional Bipedal Walking environment. 
+Lastly, I implemented OpenAI's OpenES algorithm. I added some small additions that are common to evolutionary algorithms, such as a weight decay, an adaptive learning rate, and adaptive standard deviation for the mutation rate.  The basic algorithm is the same as we described before, however there is some added complexity in setting up the algorithm to work efficiently under the parallel setting.  This is the algorithm that I was able to get quick convergence with to the solutions found in the results section.
 
 ### Implementation of an Extended OpenES
 
@@ -450,7 +453,8 @@ class OpenES:
 
         # standardize the rewards to have a gaussian distribution
         normalized_rewards = (rewards - np.mean(rewards)) / np.std(rewards)
-        change_theta = 1./(self.gen_size*self.sigma)*np.dot(self.epsilon.transpose(), normalized_rewards)
+        change_theta = 1./(self.gen_size*self.sigma)*np.dot(self.epsilon.transpose(),
+                                                            normalized_rewards)
         
         self.theta += self.alpha * change_theta
 
@@ -473,7 +477,7 @@ class OpenES:
 ```
 
 ## Training on Grace
-To exploit the parallel nature of the problem, I applied for and used the high performance computing cluster, Grace.  This allowed for a dramatic speedup of the training procedure of the policy, and eventually led to the solutions that we will list below to the selected environments.  I adapted the parallel training procedure used by ESTool, the open source project written by the author of the blogpost I referenced.  This code used MPI as a way to communicate between multiple processes each running playouts of the environment simulation.  This parallel playout strucutre, which follows the procedure that OpenAI used in their paper, allows us to test many different random mutations of our current best performing paraments while only having to communicate the random seed used to generate the mutation noise.  This, of course, dramatically speeds up the amount of time each generation takes to complete.  I used the following run script on Grace 
+To exploit the parallel nature of the problem, I applied for an account on the high performance computing cluster, Grace. This allowed for a dramatic speedup of the training procedure of the policy, and eventually led to the solutions that are listed in the results section to the selected environments.  I adapted the parallel training procedure used by ESTool, the open source project written by the author of the blogpost I referenced.  This code used MPI as a way to communicate between multiple processes each running playouts of the environment simulation.  This parallel playout strucutre, which follows the procedure that OpenAI used in their paper, allows us to test many different random mutations of our current best performing paraments while only having to communicate the random seed used to generate the mutation noise.  This, of course, dramatically speeds up the amount of time each generation takes to complete.  I used the following run script on Grace 
 
 ```bash
 #!/bin/bash
@@ -509,8 +513,8 @@ args = {"theta_dim": model.num_flat_features(),
         "alpha_lower_bound": .01,
         "weight_decay": .005,
         "start_sigma": .05,
-        "rank_fitness": True,            # use rank rather than fitness numbers
-        "forget_best": True,             # should we forget the best fitness at each iteration
+        "rank_fitness": True, # use rank rather than fitness numbers
+        "forget_best": True,  # should we forget the best fitness at each iteration
         "gen_size": gen_size
        }
 ```
@@ -518,12 +522,12 @@ args = {"theta_dim": model.num_flat_features(),
 ### BipedalWalker-V2
 The results of this experiment were resoundingly positive.  I was able to train the normal bipedal walking task using the modified version of OpenES in around 2 hours and pass the stringent evaluation procedure of averaging 300 points over 100 trials.  Below are animations of two such solutions that I found
 
-![Alt Text](https://i.imgur.com/AAWxL3P.gif)
+![Trained Agent on BipedalWalker-v2](https://i.imgur.com/AAWxL3P.gif)
 
 ### BipedalWalkerHardcore-V2
-As for the Hardcore environment, I was also pleased with the results that the modified version of OpenES achieved. Using the same algorithm and hyperparamaters that I used for the Normal Bipedal Walker environment, I was able to find a resonably robust agent that averaged around 220 points over the 300 trials.  That being said, I ran the computation for around 48 hours, and it is possible that this average perforamce could have been better if I trained it for longer.  In addition to the difficulties that I described earlier about this environment, one tradeoff that I noticed was that the agent had to strike the right balance between its speed and its ability to not fall over.  If the agent is too slow, it gets penalized for using too much motor torque to keep its balance for so long; however, if it goes too fast, it increases its likelihood to take a spill.  Below is a run of the best agent I was able to learn:
+As for the Hardcore environment, I was also pleased with the results that the modified version of OpenES achieved. Using the same algorithm and hyperparamaters that I used for the Normal Bipedal Walker environment, I was able to find a resonably robust agent that averaged around 220 points over the 300 trials. One thing to note is that I started my training of the hardcore environment with the solution that I found for the normal environment in an attempt to give the training procedure a leg up.  That being said, I ran the computation for around 48 hours, and it is possible that this average perforamce could have been better if I trained it for longer.  In addition to the difficulties that I described earlier about this environment, one tradeoff that I noticed was that the agent had to strike the right balance between its speed and its ability to not fall over.  If the agent is too slow, it is penalized for using too much motor torque to keep its balance for so long; however, if it goes too fast, it increases its likelihood to take a spill.  Below is a run of the best agent I was able to learn:
 
-![Alt Text](https://i.imgur.com/W6xUQOT.gif)
+![Trained Agent on BipedalWalkerHardcore-v2](https://i.imgur.com/W6xUQOT.gif)
 
 ## Conclusion
 In my mind before I started the project and before I read OpenAI's paper, I had always seen evolutionary algorithms as cute black-box optimzation methods that did not have serious application in training modern machine learning models; however, as I found out firsthand by getting some spectacular results on these hard environments, these algorithms may actually have a place in the traditional reinforcement learning setting.  For parameter vectors that aren't incredibly large, such as in the millions and beyond, evolutionary algorithms offer an enticing option to train continuous control agents.  The ability to parallelize training on a CPU cluster offers a unique advantage to these methods, and people with access to a large number of cores might be able to rival reinforcement learning schemes.
@@ -536,13 +540,8 @@ In my mind before I started the project and before I read OpenAI's paper, I had 
 4. Wikipedia Contributers. “CMA-ES.” Wikipedia, Wikimedia Foundation, 10 Apr. 2018, en.wikipedia.org/wiki/CMA-ES.
 
 ## Important Links
-ESTool:  https://www.github.com/hardmaru/estool  
-(where I adapted the training procedure from, and the same author of both blog posts that provided me with inspiration for the project).
+ESTool:  https://www.github.com/hardmaru/estool 
 
-OpenES:  https://github.com/openai/evolution-strategies-starter
+OpenES repository:  https://github.com/openai/evolution-strategies-starter
 
-
-
-```python
-
-```
+My full code: https://github.com/andrewmalta13/evolutionaryAlgorithms
