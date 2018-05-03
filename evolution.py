@@ -184,11 +184,6 @@ class OpenES:
         self.alpha_mult = args["alpha_mult"]
         self.alpha_lower_bound = args["alpha_lower_bound"]
         self.gen_size = args["gen_size"]
-        self.antithetic = args["antithetic"]
-        if self.antithetic:
-            assert (self.gen_size % 2 == 0), "Population size must be even"
-            self.half_gensize = int(self.gen_size / 2)
-
         self.rewards = np.zeros(self.gen_size)
         self.theta = np.zeros(self.theta_dim)
         self.best_theta = np.zeros(self.theta_dim)
@@ -196,18 +191,12 @@ class OpenES:
         self.forget_best = args["forget_best"]
         self.weight_decay = args["weight_decay"]
         self.rank_fitness = args["rank_fitness"]
-        if self.rank_fitness:
-            self.forget_best = True # always forget the best one if we rank
+        if self.rank_fitness: # use rank rather than fitness numbers
+            self.forget_best = True # forget the best one if we use rank fitness
 
     def ask(self):
-        '''returns a collection of model weights'''
-        # antithetic sampling
-        if self.antithetic:
-            self.epsilon_half = np.random.randn(self.half_gensize, self.theta_dim)
-            self.epsilon = np.concatenate([self.epsilon_half, -self.epsilon_half])
-        else:
-            self.epsilon = np.random.randn(self.gen_size, self.theta_dim)
-
+        '''returns a collection of model weights'''    
+        self.epsilon = np.random.randn(self.gen_size, self.theta_dim)
         self.solutions = self.theta.reshape(1, self.theta_dim) + self.epsilon * self.sigma
 
         return self.solutions

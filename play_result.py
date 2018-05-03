@@ -3,6 +3,7 @@ from models import Net
 import sys
 import json
 from simulate import simulate, evaluate
+from gym.wrappers import Monitor
 
 if __name__ ==  "__main__":
     # gamename = 'BipedalWalker-v2'
@@ -20,6 +21,11 @@ if __name__ ==  "__main__":
         simulate(env, Net, weights, 4, None, render=True)
     elif command == "evaluate":
         print evaluate(env, Net, weights)
+    elif command == "record":
+        env = Monitor(env, directory='/tmp/' + gamename,
+                      video_callable=lambda id: True,
+                      write_upon_reset=True, force=True)
+        simulate(env, Net, weights, 1, None, render=True)
     else:
         print "invalid command [simulate | evaluate]"
 

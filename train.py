@@ -93,7 +93,6 @@ def initialize_settings():
             "alpha": .01,
             "alpha_mult": 1,
             "alpha_lower_bound": .01,
-            "antithetic": True,
             "weight_decay": .005,
             "start_sigma": .05,
             "rank_fitness": True,            # use rank rather than fitness numbers

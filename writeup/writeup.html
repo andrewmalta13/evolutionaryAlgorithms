@@ -1,0 +1,101 @@
+<h1 id="learning-continuous-control-agents-with-evolutionary-algorithms">Learning Continuous Control Agents with Evolutionary Algorithms</h1>
+<h3 id="author-andrew-malta">Author: <code>Andrew Malta</code></h3>
+<h2 id="introduction">Introduction</h2>
+<p>In this project, I explored the application of evolutionary algorithms to learn policies for continuous control agents in the OpenAI Gym. The OpenAI Gym, while traditionally used to measure the performance of reinforcement learning approaches on toy environments from Atari games to motion tasks, provided me with an ideal framework to test the performance of evolutionary algorithms on learning deterministic policies for agents. I first got interested in this topic when I read OpenAI's paper, &quot;Evolution Strategies as a Scalable Alternative to Reinforcement Learning&quot;, which experimentally demonstrated that it is possible to rival the performance of reinforcement learning in many tasks while gaining the desirable property of highly parallelizable training procedures. This report along with an excellent blog post about applying these techniques to the OpenAI gym in particular, both referenced at the bottom, encouraged me to try my hand at some of the hardest control tasks offered in the OpenAI gym.</p>
+<h2 id="environments">Environments</h2>
+<p>In choosing an environment to experiment with, I first looked for a task that would be particularly amenable to reinforcement learning, as I wanted to see that a typical reinforcment learning task could be solved through the use of an evolutionary algorithm. I settled on the Bipedal walking task in the OpenAI gym as it seemed to meet these criteria and due to the fact that it had both a normal and a hadcore version, which I thought I might be able to exploit in the training process. Very simply, the goal of the task is to have your agent navigate itself across the terrain in front of it and reach the goal on the other end. The reward function penalizes stumbling, defined to be when the head hits the ground, and the use of excess motor torque. A good solution is robust to the terrain, but does not use too much motor torque to maintain this robustness.</p>
+<p>The input to the model is a stream of 24 dimensional vectors each of which includes hull angle speed, angular velocity, horizontal speed, vertical speed, position of joints and joints angular speed, leg contacts with the ground, and 10 lidar inputs that encode objects in the vicinity. The output is a 4 dimensional vector representing the amount of torque to apply to each of the 4 joints on the agent.</p>
+<p>The normal version of the environment has small random variation in the terrain, but all in all it is pretty flat.</p>
+<div class="figure">
+<img src="https://media.giphy.com/media/NVmoxc9Jjri0r8D6fz/giphy.gif" alt="Alt Text" />
+<p class="caption">Alt Text</p>
+</div>
+<p>The hardcore of the environment, on the other hand, has pits, ramps, and obstructions of various sizes that the agent has to navigate. Due to this terrain, it is much easier for the agent to get stuck in local minima, as it can learn how to navigate some of the terrain but not the rest.</p>
+<div class="figure">
+<img src="https://media.giphy.com/media/1qk0RMLewHC6LnYPI1/giphy.gif" alt="Alt Text" />
+<p class="caption">Alt Text</p>
+</div>
+<p>The hardcore task poses a major leap in difficulty as the terrain varies much more significantly for each run of the environment than the normal version of the environment does. This forces you to learn a robust policy to work in any configuration of these ramps, pits, and obstructions rather than learn a particular motor sequence that works for a particular environment. This was not a major issue in the normal bipedal walking environment as the terrain variation was minimal, allowing the evolutionary algorithm to simply learn a motor sequence that propelled itself forward while keeping its balance.</p>
+<h2 id="model">Model</h2>
+<p>For this project, I decided to roll my own small neural network framework as I wanted to have direct access to the parameterization of the weights and biases of the network through a single flat vector. This, in my mind, was the easiest way to interface the evoltionary algorithms with my model as most libraries make you go out of your way to do something other than the classic back propagation with some optimizer. I wanted to keep the model simple because I wanted to try keep the focus on the optimzation procedure, and I wanted the optimzation routine to run quickly.</p>
+<p>The model I ended up choosing was a feed-forward nerual network with 2 hidden layers and hypberbolic tangent activation, which ended up totaling a parameter vector of length 2804 when you account for the biases. This number of parameters, of course, was a main concern when I was choosing the size of my model, as I wanted to ensure that the neural network was able to represent the function I was trying to approximate. That being said, I wanted to keep the parameter vector small enough for performance reasons, as I wanted to test the performance of the CMA-ES optimization algorithm, which scales poorly with the size of the parameter vector. The code for this simple neural network model is listed below:</p>
+<div class="sourceCode"><pre class="sourceCode python"><code class="sourceCode python"><span class="im">import</span> numpy <span class="im">as</span> np
+
+<span class="kw">class</span> Net():
+  <span class="kw">def</span> <span class="fu">__init__</span>(<span class="va">self</span>, weights):
+    <span class="co"># an affine operation: y = Wx + b</span>
+    <span class="va">self</span>.dimensions <span class="op">=</span> [(<span class="dv">24</span>, <span class="dv">40</span>), (<span class="dv">40</span>, <span class="dv">40</span>), (<span class="dv">40</span>, <span class="dv">4</span>)]
+    <span class="va">self</span>.layers <span class="op">=</span> []
+    <span class="va">self</span>.biases <span class="op">=</span> []
+    <span class="cf">if</span> <span class="kw">not</span> weights <span class="kw">is</span> <span class="va">None</span>:
+      tmp <span class="op">=</span> <span class="dv">0</span>
+      <span class="cf">for</span> d <span class="kw">in</span> <span class="va">self</span>.dimensions:
+        length <span class="op">=</span> np.prod(d)
+        <span class="va">self</span>.layers.append(np.reshape(weights[tmp: tmp <span class="op">+</span> length], d))
+        tmp <span class="op">+=</span> length
+        <span class="va">self</span>.biases.append(np.reshape(weights[tmp: tmp <span class="op">+</span> d[<span class="op">-</span><span class="dv">1</span>]], (<span class="dv">1</span>, d[<span class="op">-</span><span class="dv">1</span>])))
+        tmp <span class="op">+=</span> d[<span class="op">-</span><span class="dv">1</span>]
+
+  <span class="kw">def</span> set_model_params(<span class="va">self</span>, weights):
+    <span class="va">self</span>.layers <span class="op">=</span> []
+    <span class="va">self</span>.biases <span class="op">=</span> []
+
+    tmp <span class="op">=</span> <span class="dv">0</span>
+    <span class="cf">for</span> d <span class="kw">in</span> <span class="va">self</span>.dimensions:
+      length <span class="op">=</span> np.prod(d)
+      <span class="va">self</span>.layers.append(np.reshape(weights[tmp: tmp <span class="op">+</span> length], d))
+      tmp <span class="op">+=</span> length
+      <span class="va">self</span>.biases.append(np.reshape(weights[tmp: tmp <span class="op">+</span> d[<span class="op">-</span><span class="dv">1</span>]], (<span class="dv">1</span>, d[<span class="op">-</span><span class="dv">1</span>])))
+      tmp <span class="op">+=</span> d[<span class="op">-</span><span class="dv">1</span>]
+    
+  <span class="kw">def</span> forward(<span class="va">self</span>, x):
+    working_tensor <span class="op">=</span> x
+    <span class="cf">for</span> i <span class="kw">in</span> <span class="bu">xrange</span>(<span class="bu">len</span>(<span class="va">self</span>.layers)):
+      affine <span class="op">=</span> np.dot(working_tensor, <span class="va">self</span>.layers[i]) <span class="op">+</span> <span class="va">self</span>.biases[i]
+      working_tensor <span class="op">=</span> np.tanh(affine)
+    <span class="cf">return</span> working_tensor[<span class="dv">0</span>]
+
+  <span class="kw">def</span> num_flat_features(<span class="va">self</span>):
+    ret <span class="op">=</span> <span class="dv">0</span>
+    <span class="cf">for</span> d <span class="kw">in</span> <span class="va">self</span>.dimensions:
+      ret <span class="op">+=</span> np.prod(d)
+      ret <span class="op">+=</span> d[<span class="op">-</span><span class="dv">1</span>]
+    <span class="cf">return</span> ret</code></pre></div>
+<h2 id="optimization">Optimization</h2>
+<p>I played around with a number of evolutionary algorithms, some of which do not have a canonical name and other that certainly do. When I was performing experiments on some other environments that I will not include in the report, I was still not using the MPI interface I adapted from ESTool. I experimented with some of the basic strategies such as one that I ended up reffering to as WinnerES which was simply</p>
+<h3 id="winneres">WinnerES</h3>
+<p><span class="math inline">$\theta_{0} = \vec{0}$</span> for some number of generations: <span class="math inline">$\hspace{1cm} \epsilon_{1,...,n} \sim N(\sigma, I)$</span> <span class="math inline">$\hspace{1cm} j = \text{argmax}_{i} f(\theta_t + \epsilon_i)$</span> <span class="math inline">$\hspace{1cm} \theta_{t+1} = \theta_{t} + \epsilon_j$</span></p>
+<p>This is a basic template for a evolutionary algorithm with a simplified update step of just choosing the best child from the generation and using it as the starting point of the next generation. This is not great for a number of reasons, but it could work for some simple tasks as I saw. In other words this is really just a randomized sampling of directions on the objective function to approximate the gradient at your current parameter vector. The larger your generation size, n, the better your approximation of the gradient gets, but the longer the computation takes per step.</p>
+<p>The next algorithm I implemented and tested on some toy examples was the non-parallelized version of OpenAI's evolutionary strategy, which is described in algorithm 1 in the paper in the references. In my code I reference it as WeightedAverageES, and the updates are as follows:</p>
+<h3 id="openessingle-threaded">OpenES(Single Threaded)</h3>
+<p><span class="math inline">$\theta{0} = \vec{0}$</span></p>
+<p>for some number of generations: <span class="math inline">$\hspace{1cm} \epsilon{1,...,n} ~ N(\sigma, I)$</span> <span class="math inline">$\hspace{1cm} f_i = f(\theta_t + \epsilon_i)$</span> <span class="math inline">$\hspace{1cm} \theta_{t+1} = \theta_t + \frac{\alpha}{n\sigma} \sum_{i}^n f_i * \epsilon_i$</span></p>
+<h2 id="training-on-grace">Training on Grace</h2>
+<p>To exploit the parallel nature of the problem, I applied for and used the high performance computing cluster, Grace. This allowed for a dramatic speedup of the training procedure of the policy, and eventually led to the solutions that we will list below to the selected environments. I adapted the parallel training procedure used by ESTool, the open source project written by the author of the blogpost I referenced. This code used MPI as a way to communicate between multiple processes each running playouts of the environment simulation. This parallel playout strucutre, which follows the procedure that OpenAI used in their paper, allows us to test many different random mutations of our current best performing paraments while only having to communicate the random seed used to generate the mutation noise. This, of course, dramatically speeds up the amount of time each generation takes to complete. I used the following run script on Grace</p>
+<div class="sourceCode"><pre class="sourceCode bash"><code class="sourceCode bash"><span class="co">#!/bin/bash</span>
+<span class="co">#SBATCH --partition=scavenge</span>
+<span class="co">#SBATCH --job-name=bipedal_walker_hardcore_es</span>
+<span class="co">#SBATCH --ntasks=64</span>
+<span class="co">#SBATCH --ntasks-per-node=1</span>
+<span class="co">#SBATCH --mem-per-cpu=6000 </span>
+<span class="co">#SBATCH --time=12:00:00</span>
+<span class="co">#SBATCH --mail-type=ALL</span>
+<span class="co">#SBATCH --mail-user=email</span>
+
+<span class="bu">source</span> activate amth
+<span class="ex">pip</span> install mpi4py
+<span class="ex">python</span> train.py -e 16 -n 64 -t 4 --start_file <span class="op">&lt;</span>model_start_file<span class="op">&gt;</span></code></pre></div>
+<h2 id="results">Results</h2>
+<p>The results of the experiment were resoundingly positive. I was skeptical of the methods being able to work on the bipedal walking environmen</p>
+<div class="figure">
+<img src="https://media.giphy.com/media/1qk0RMLewHC6LnYPI1/giphy.gif" alt="Alt Text" />
+<p class="caption">Alt Text</p>
+</div>
+<h2 id="conclusion">Conclusion</h2>
+<p>In my mind before I started the project and before I read OpenAI's paper, I had always seen evolutionary algorithms as cute black-box optimzation methods that did not have serious application in training modern machine learning models; however, as we can see in the results section, these algorithms may actually have a place in the traditional reinforcement learning setting. For parameter vectors that aren't incredibly large, like in the millions, evolutionary algorihtms offer an enticing option to train continuous control agents. The ability to</p>
+<h2 id="references">References</h2>
+<ol style="list-style-type: decimal">
+<li></li>
+<li></li>
+<li></li>
+</ol>
